@@ -1,0 +1,12 @@
+{
+  "name": "trisulfide",
+  "version": "1.0.0",
+  "description": "tiktok information scraper",
+  "main": "index.js",
+  "scripts": {
+    "start": "node cli.js"
+  },
+  "author": "jesodium",
+  "license": "ISC",
+  "dependencies": {}
+}
