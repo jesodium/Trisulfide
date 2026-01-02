@@ -1,8 +1,11 @@
 {
   "name": "trisulfide",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "tiktok information scraper",
   "main": "index.js",
+  "bin": {
+    "trisulfide": "./cli.js"
+  },
   "scripts": {
     "start": "node cli.js"
   },
