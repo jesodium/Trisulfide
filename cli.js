@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const readline = require('readline');
 const fetchProfile = require('./index');
 
