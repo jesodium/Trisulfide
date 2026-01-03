@@ -23,4 +23,4 @@ trisulfide('khabylame').then(data => {
 });
 ```
 # License
-ISC
+MIT
