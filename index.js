@@ -1,59 +1,57 @@
 // index.js
-let countries = {};
-try { countries = require('./countries.json'); } catch (e) { countries = {}; }
-
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 musical_ly_40.6.0 BytedanceWebview/d8a21c6",
-  "Accept": "text/html"
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9"
 };
 
-function ts(timestamp) {
-  try {
-    if (!timestamp) return null;
-    const date = new Date(parseInt(timestamp, 10) * 1000);
-    return isNaN(date.getTime()) ? null : date.toISOString().replace('T', ' ').split('.')[0];
-  } catch (e) { return null; }
-}
-
-function extract(regex, text) {
-  const match = text.match(regex);
-  return match ? match[1] : null;
-}
-
 async function fetchProfile(username) {
+  // clean up the username input
   const cleanUser = username.trim().replace(/^@/, '');
-  const url = `https://www.tiktok.com/@${cleanUser}?isUniqueId=true&isSecured=true`;
+  const url = `https://www.tiktok.com/@${cleanUser}`;
   const controller = new AbortController();
+  
+  // timeout after 15 seconds
   setTimeout(() => controller.abort(), 15000);
 
   try {
+    // fetch the html from tiktok
     const response = await fetch(url, { headers: HEADERS, signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
     const html = await response.text();
 
-    const uniqueIdStr = `"uniqueId":"${cleanUser}"`;
-    const baseIndex = html.indexOf(uniqueIdStr);
-    const block = baseIndex !== -1 ? html.substring(baseIndex, baseIndex + 10000) : html;
+    let rawData = null;
 
-    return {
-      username: cleanUser,
-      nickname: extract(/"nickname":"(.*?)"/, block),
-      secUid: extract(/"secUid":"(.*?)"/, block),
-      verified: extract(/"verified":(true|false)/, block) === 'true',
-      private: extract(/"privateAccount":(true|false)/, block) === 'true',
-      region: countries[extract(/"region":"(.*?)"/, block)] || extract(/"region":"(.*?)"/, block),
-      language: extract(/"language":"(.*?)"/, block),
-      bio: extract(/"signature":"(.*?)"/, block),
-      stats: {
-        followers: parseInt(extract(/"followerCount":(\d+)/, block) || 0),
-        following: parseInt(extract(/"followingCount":(\d+)/, block) || 0),
-        hearts: parseInt(extract(/"heartCount":(\d+)/, block) || 0),
-        videos: parseInt(extract(/"videoCount":(\d+)/, block) || 0),
-      },
-      create_time: ts(extract(/"createTime":(\d{10})/, block)),
-    };
-  } finally {
-    // Cleanup handled by GC, but good practice to clear timeout if logic allowed
+    // look for the universal data script tag
+    const universalMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)<\/script>/);
+    
+    // look for the legacy sigi state script tag
+    const sigiMatch = html.match(/<script id="SIGI_STATE"[^>]*>([^<]+)<\/script>/);
+
+    if (universalMatch) {
+      // parse the main json object
+      const json = JSON.parse(universalMatch[1]);
+      const defaultScope = json["__DEFAULT_SCOPE__"] || {};
+      const webappUser = defaultScope["webapp.user-detail"] || {};
+      rawData = webappUser.userInfo;
+    } 
+    else if (sigiMatch) {
+      // fallback parsing for older layouts
+      const json = JSON.parse(sigiMatch[1]);
+      if (json.UserModule && json.UserModule.users) {
+        const key = Object.keys(json.UserModule.users)[0];
+        rawData = {
+          user: json.UserModule.users[key],
+          stats: json.UserModule.stats[key]
+        };
+      }
+    }
+
+    // return the full raw json object
+    return rawData || { error: "unable to find json data in response" };
+
+  } catch (e) {
+    return { error: e.message };
   }
 }
 

@@ -18,7 +18,7 @@ npx trisulfide
 ```javascript
 const trisulfide = require('trisulfide');
 
-trisulfide('khabylame').then(data => {
+trisulfide('chipotle').then(data => {
   console.log(data);
 });
 ```

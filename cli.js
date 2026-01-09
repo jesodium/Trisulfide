@@ -2,48 +2,69 @@
 const readline = require('readline');
 const fetchProfile = require('./index');
 
-function printBeautified(data) {
-  console.log("\n==================================================");
-  console.log(`👤  @${data.username} (${data.nickname})`);
-  if (data.verified) console.log(`✅  Verified Account`);
-  if (data.private) console.log(`🔒  Private Account`);
-  console.log("--------------------------------------------------");
-  console.log("📊  STATISTICS");
-  console.log(`   • Followers:  ${data.stats.followers.toLocaleString()}`);
-  console.log(`   • Following:  ${data.stats.following.toLocaleString()}`);
-  console.log(`   • Likes:      ${data.stats.hearts.toLocaleString()}`);
-  console.log(`   • Videos:     ${data.stats.videos.toLocaleString()}`);
-  console.log("--------------------------------------------------");
-  console.log("📝  BIO");
-  console.log(`   ${data.bio ? data.bio.replace(/\n/g, '\n   ') : 'No bio'}`);
-  console.log("--------------------------------------------------");
-  console.log("ℹ️   INFO");
-  console.log(`   • Region:     ${data.region || 'N/A'}`);
-  console.log(`   • Created:    ${data.create_time || 'N/A'}`);
-  if (data.secUid) {
-    console.log("--------------------------------------------------");
-    console.log(`🔑  SecUid: ${data.secUid.substring(0, 25)}...`);
+// formatting helper for timestamps
+function formatVal(key, val) {
+  if (key.toLowerCase().includes('time') && typeof val === 'number') {
+    try {
+      return `${val} (${new Date(val * 1000).toISOString().replace('T', ' ').split('.')[0]})`;
+    } catch (e) { return val; }
   }
-  console.log("==================================================\n");
+  return val;
+}
+
+// recursive function to print everything that isn't empty
+function printTree(obj, indent = 0) {
+  const space = '   '.repeat(indent);
+  
+  for (const [key, val] of Object.entries(obj)) {
+    // skip empty strings, nulls, or undefined
+    if (val === null || val === undefined || val === '') continue;
+    
+    // skip empty arrays
+    if (Array.isArray(val) && val.length === 0) continue;
+
+    // skip empty objects
+    if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length === 0) continue;
+
+    if (typeof val === 'object' && !Array.isArray(val)) {
+      // print object header and recurse
+      console.log(`${space}📂 ${key}`);
+      printTree(val, indent + 1);
+    } else {
+      // print value
+      console.log(`${space}• ${key}: ${formatVal(key, val)}`);
+    }
+  }
 }
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-rl.question('Username: ', (input) => {
-  if (!input) { console.log("No username provided."); rl.close(); return; }
+rl.question('username: ', (input) => {
+  if (!input) { console.log("no username provided."); rl.close(); return; }
 
-  rl.question('Format (j = JSON, b = Beautified): ', async (formatInput) => {
+  rl.question('format (j = json, b = beautified): ', async (formatInput) => {
     try {
-      const info = await fetchProfile(input);
+      console.log(`\nfetching data for @${input}...\n`);
+      const rawData = await fetchProfile(input);
+      
+      if (rawData.error) {
+        console.error("error:", rawData.error);
+        rl.close();
+        return;
+      }
+
       const fmt = formatInput.trim().toLowerCase();
       
       if (fmt === 'j' || fmt === 'json') {
-        console.log(JSON.stringify(info, null, 2));
+        console.log(JSON.stringify(rawData, null, 2));
       } else {
-        printBeautified(info);
+        console.log("==================================================");
+        // prints every single non-empty field found in the json
+        printTree(rawData);
+        console.log("==================================================");
       }
     } catch (error) {
-      console.error("Error:", error.message);
+      console.error("fatal error:", error.message);
     } finally {
       rl.close();
     }
