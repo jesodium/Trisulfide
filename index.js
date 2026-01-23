@@ -1,109 +1,93 @@
 // index.js
 let countries = {};
-try { countries = require('./countries.json'); } catch (e) { countries = {}; }
+try { 
+  countries = require('./countries.json'); 
+} catch (e) { 
+  countries = {}; 
+}
 
-// use desktop user-agent for full html
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9"
 };
 
-// helper to clean backslashes from regex matches
-function cleanMatch(str) {
-  return str ? str.replace(/\\/g, '') : null;
-}
+const HEADERS_MOBILE = {
+  "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 musical_ly_40.6.0 BytedanceWebview/d8a21c6",
+  "Accept": "text/html"
+};
 
-// helper to extract regex match
 function extract(regex, text) {
   const match = text.match(regex);
-  return match ? cleanMatch(match[1]) : null;
+  return match ? match[1] : null;
 }
 
 async function fetchProfile(username) {
+  // clean up the username input
   const cleanUser = username.trim().replace(/^@/, '');
   const url = `https://www.tiktok.com/@${cleanUser}`;
   const controller = new AbortController();
   
-  // timeout 15s
+  // timeout after 15 seconds
   setTimeout(() => controller.abort(), 15000);
-
+  
   try {
+    // fetch the html from tiktok with desktop headers for full JSON
     const response = await fetch(url, { headers: HEADERS, signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    const html = await response.text();
-
-    // step 1: try to get the full json object
-    let rawData = { user: {}, stats: {} }; 
-
-    try {
-      const universalMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)<\/script>/);
-      const sigiMatch = html.match(/<script id="SIGI_STATE"[^>]*>([^<]+)<\/script>/);
-
-      if (universalMatch) {
-        const json = JSON.parse(universalMatch[1]);
-        const defaultScope = json["__DEFAULT_SCOPE__"] || {};
-        const webappUser = defaultScope["webapp.user-detail"] || {};
-        
-        // merge json data
-        if (webappUser.userInfo) {
-          rawData.user = { ...rawData.user, ...(webappUser.userInfo.user || {}) };
-          rawData.stats = { ...rawData.stats, ...(webappUser.userInfo.stats || {}) };
-          // preserve other keys
-          for (const key in webappUser.userInfo) {
-              if (key !== 'user' && key !== 'stats') rawData[key] = webappUser.userInfo[key];
-          }
-        }
-      } 
-      else if (sigiMatch) {
-        const json = JSON.parse(sigiMatch[1]);
-        if (json.UserModule && json.UserModule.users) {
-          const key = Object.keys(json.UserModule.users)[0];
-          rawData.user = { ...rawData.user, ...(json.UserModule.users[key] || {}) };
-          rawData.stats = { ...rawData.stats, ...(json.UserModule.stats[key] || {}) };
-        }
-      }
-    } catch (e) {
-      // ignore json errors
-    }
-
-    // step 2: scrape the region using "super aggressive" strategy
-    let scrapedRegion = null;
-    const uniqueIdStr = cleanUser;
-    const baseIndex = html.indexOf(uniqueIdStr);
     
-    // strategy a: look in a massive block around the username
-    if (baseIndex !== -1) {
-      // look 50,000 chars back (covers almost the whole json blob)
-      const start = Math.max(0, baseIndex - 50000);
-      const end = Math.min(html.length, baseIndex + 10000);
-      const block = html.substring(start, end);
-
-      // regex allows for spaces: "region" : "US"
-      scrapedRegion = extract(/(?:\\?)"region(?:\\?)"\s*:\s*(?:\\?)"(.*?)(?:\\?)"/, block);
+    const html = await response.text();
+    let rawData = null;
+    
+    // look for the universal data script tag
+    const universalMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)<\/script>/);
+    // look for the legacy sigi state script tag
+    const sigiMatch = html.match(/<script id="SIGI_STATE"[^>]*>([^<]+)<\/script>/);
+    
+    if (universalMatch) {
+      // parse the main json object
+      const json = JSON.parse(universalMatch[1]);
+      const defaultScope = json["__DEFAULT_SCOPE__"] || {};
+      const webappUser = defaultScope["webapp.user-detail"] || {};
+      rawData = webappUser.userInfo;
+    } 
+    else if (sigiMatch) {
+      // fallback parsing for older layouts
+      const json = JSON.parse(sigiMatch[1]);
+      if (json.UserModule && json.UserModule.users) {
+        const key = Object.keys(json.UserModule.users)[0];
+        rawData = {
+          user: json.UserModule.users[key],
+          stats: json.UserModule.stats[key]
+        };
+      }
     }
-
-    // strategy b: if still null, search the ENTIRE html for the specific user-region pattern
-    if (!scrapedRegion) {
-        // this is a fallback that looks for standard unescaped region key
-        // rarely needed but good for "weird" layouts
-        scrapedRegion = extract(/"region"\s*:\s*"([A-Z]{2})"/, html);
+    
+    if (!rawData || !rawData.user) {
+      return { error: "unable to find json data in response" };
     }
-
-    // step 3: merge/force region into the data
-    if (scrapedRegion) {
-      if (!rawData.user) rawData.user = {};
-      rawData.user.region = scrapedRegion;
-      rawData.user.regionName = countries[scrapedRegion] || scrapedRegion;
+    
+    // Fetch again with mobile headers to get region data
+    const mobileUrl = `https://www.tiktok.com/@${cleanUser}?isUniqueId=true&isSecured=true`;
+    const mobileController = new AbortController();
+    setTimeout(() => mobileController.abort(), 15000);
+    
+    const mobileResponse = await fetch(mobileUrl, { headers: HEADERS_MOBILE, signal: mobileController.signal });
+    if (mobileResponse.ok) {
+      const mobileHtml = await mobileResponse.text();
+      const uniqueIdStr = `"uniqueId":"${cleanUser}"`;
+      const baseIndex = mobileHtml.indexOf(uniqueIdStr);
+      const block = baseIndex !== -1 ? mobileHtml.substring(baseIndex, baseIndex + 10000) : mobileHtml;
+      const regionCode = extract(/"region":"(.*?)"/, block);
+      
+      // Add region to the user object
+      if (regionCode) {
+        rawData.user.region = countries[regionCode] || regionCode;
+      }
     }
-
-    // ensure uniqueId exists
-    if (!rawData.user.uniqueId) {
-      rawData.user.uniqueId = cleanUser;
-    }
-
+    
+    // return the full raw json object
     return rawData;
-
   } catch (e) {
     return { error: e.message };
   }
