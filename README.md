@@ -2,15 +2,6 @@
 
 a simple, zero-dependency tiktok profile scraper.
 
-## features
-
-- 🚀 zero dependencies - pure node.js
-- 📊 comprehensive data - user info, stats, verification, region, and more
-- 🌍 region support - country codes converted to full names with flag emojis
-- ⚡ fast & reliable - dual-fetch strategy for maximum accuracy
-- 🛡️ timeout protection - 15-second request timeout
-- 💻 cli & programmatic - use as a command-line tool or in your code
-
 ## installation
 
 ```bash
@@ -220,20 +211,10 @@ errors handled:
 
 ## limitations
 
-- public profiles only (no private/age-restricted accounts)
 - subject to tiktok rate limiting
 - may break if tiktok changes html structure
 - no authentication support
 
-## legal notice
-
-this tool scrapes public data from tiktok, which may violate tiktok's terms of service. use responsibly:
-
-- only scrape public profiles
-- respect rate limits
-- don't use for harassment or malicious purposes
-- be aware of privacy implications
-- consider official apis for commercial use
 
 ## license
 
@@ -245,4 +226,4 @@ this program and the accompanying materials are made available under the terms o
 
 ## disclaimer
 
-not affiliated with tiktok or bytedance. use at your own risk.
+not affiliated with tiktok or bytedance.
