@@ -18,8 +18,8 @@ npx trisulfide
 ```
 
 you'll be prompted to:
-1. enter a tiktok username (with or without `@`)
-2. choose output format (`j` for json, `b` for beautified)
+1. enter a tiktok username
+2. choose output format (json or beautified)
 
 **example:**
 ```bash
