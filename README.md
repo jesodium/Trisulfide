@@ -158,7 +158,7 @@ trisulfide('nonexistentuser12345')
 | `user.nickname` | string | display name |
 | `user.signature` | string | bio/description |
 | `user.verified` | boolean | verification status |
-| `user.region` | string | country with flag emoji |
+| `user.region` | string | country + flag (best-effort, see below) |
 | `user.privateAccount` | boolean | privacy status |
 | `user.createTime` | number | account creation unix timestamp |
 | `stats.followerCount` | number | total followers |
@@ -168,28 +168,26 @@ trisulfide('nonexistentuser12345')
 
 ## region support
 
-trisulfide converts iso country codes to full country names with flag emojis using a `countries.json` file. if missing, raw country codes are shown.
+tiktok removed region from the profile object — the only `region` left in the
+profile payload is the *requester's* edge location, which is why the old
+scraper returned the fetcher's country. the account's real region now lives
+only in **video metadata**.
 
-**example countries.json:**
-```json
-{
-  "US": "United States 🇺🇸",
-  "GB": "United Kingdom 🇬🇧",
-  "CA": "Canada 🇨🇦",
-  "AU": "Australia 🇦🇺",
-  "DE": "Germany 🇩🇪",
-  "FR": "France 🇫🇷",
-  "JP": "Japan 🇯🇵"
-}
-```
+trisulfide recovers it without any request signing:
+
+1. the unsigned embed page (`/embed/@user`) lists the account's recent video ids
+2. the video page carries `locationCreated` (country the video was posted from)
+3. the 2-letter code maps to a country name + flag via `countries.json`
+
+best-effort: private accounts or accounts with no public videos have no
+region, so `region` is omitted rather than faked.
 
 ## how it works
 
-trisulfide uses a dual-fetch strategy:
-
-1. **desktop fetch** - gets comprehensive json data from `__UNIVERSAL_DATA_FOR_REHYDRATION__` or `SIGI_STATE` script tags
-2. **mobile fetch** - extracts region data using mobile user-agent (not always in desktop response)
-3. **merge** - combines both responses for complete profile data
+1. **profile fetch** — parses the json from `__UNIVERSAL_DATA_FOR_REHYDRATION__`
+   or legacy `SIGI_STATE` script tags
+2. **region resolve** — embed page → recent video → `locationCreated`
+   (see [region support](#region-support))
 
 ## error handling
 

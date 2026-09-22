@@ -1,25 +1,43 @@
 // index.js
 let countries = {};
-try { 
-  countries = require('./countries.json'); 
-} catch (e) { 
-  countries = {}; 
-}
+try { countries = require('./countries.json'); } catch (e) { countries = {}; }
 
+// IMPORTANT NOTE: desktop UAs now get TikTok's WAF JS challenge ("Please wait..."),
+// mobile Safari UA still gets the rehydration JSON. If this breaks too, need a real browser.
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9"
 };
 
-const HEADERS_MOBILE = {
-  "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 musical_ly_40.6.0 BytedanceWebview/d8a21c6",
-  "Accept": "text/html"
-};
+// fetch a tiktok page as html with a 15s timeout
+async function getHtml(url) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, { headers: HEADERS, signal: controller.signal });
+    return res.ok ? await res.text() : '';
+  } finally { clearTimeout(t); }
+}
 
-function extract(regex, text) {
-  const match = text.match(regex);
-  return match ? match[1] : null;
+// TikTok removed region from the profile object. It still ships per-video as
+// itemStruct.locationCreated (country the video was posted from), and both
+// pages below are unsigned: embed page -> video ids, video page -> location.
+// IMPORTANT NOTE: this is where the user posts from, not the account's signup
+// region — same thing for almost everyone. Tries the first 3 videos; no public
+// videos (private / empty account) = no region.
+async function fetchRegion(username) {
+  const embed = await getHtml(`https://www.tiktok.com/embed/@${username}`);
+  const m = embed.match(/<script id="__FRONTITY_CONNECT_STATE__"[^>]*>([^<]+)<\/script>/);
+  if (!m) return null;
+  const page = JSON.parse(m[1]).source.data[`/embed/@${username}`] || {};
+
+  for (const v of (page.videoList || []).slice(0, 3)) {
+    const html = await getHtml(`https://www.tiktok.com/@${username}/video/${v.id}`);
+    const code = (html.match(/"locationCreated":"([A-Z]{2})"/) || [])[1];
+    if (code) return countries[code] || code;
+  }
+  return null;
 }
 
 async function fetchProfile(username) {
@@ -66,26 +84,11 @@ async function fetchProfile(username) {
     if (!rawData || !rawData.user) {
       return { error: "unable to find json data in response" };
     }
-    
-    // Fetch again with mobile headers to get region data
-    const mobileUrl = `https://www.tiktok.com/@${cleanUser}?isUniqueId=true&isSecured=true`;
-    const mobileController = new AbortController();
-    setTimeout(() => mobileController.abort(), 15000);
-    
-    const mobileResponse = await fetch(mobileUrl, { headers: HEADERS_MOBILE, signal: mobileController.signal });
-    if (mobileResponse.ok) {
-      const mobileHtml = await mobileResponse.text();
-      const uniqueIdStr = `"uniqueId":"${cleanUser}"`;
-      const baseIndex = mobileHtml.indexOf(uniqueIdStr);
-      const block = baseIndex !== -1 ? mobileHtml.substring(baseIndex, baseIndex + 10000) : mobileHtml;
-      const regionCode = extract(/"region":"(.*?)"/, block);
-      
-      // Add region to the user object
-      if (regionCode) {
-        rawData.user.region = countries[regionCode] || regionCode;
-      }
-    }
-    
+
+    // region: best-effort, never fail the whole fetch over it
+    const region = await fetchRegion(cleanUser).catch(() => null);
+    if (region) rawData.user.region = region;
+
     // return the full raw json object
     return rawData;
   } catch (e) {
@@ -94,3 +97,18 @@ async function fetchProfile(username) {
 }
 
 module.exports = fetchProfile;
+
+// self-check: `node index.js` — live region fetch for known accounts.
+if (require.main === module) {
+  const assert = require('assert');
+  assert.strictEqual(countries['US'], 'United States 🇺🇸', 'country code must map to name');
+  (async () => {
+    for (const [u, want] of [['tiktok', 'US'], ['bbc', 'GB']]) {
+      const d = await fetchProfile(u);
+      assert(d.user, `@${u}: ${d.error}`);
+      assert.strictEqual(d.user.region, countries[want], `@${u} region`);
+      console.log(`@${u}: ${d.user.region}`);
+    }
+    console.log('ok');
+  })();
+}
